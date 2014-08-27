@@ -2,6 +2,7 @@
 
 var buffers = require("./buffers");
 var dispatch = require("./dispatch");
+var recorder = require('./record');
 
 var MAX_DIRTY = 64;
 var MAX_QUEUE_SIZE = 1024;
@@ -45,6 +46,15 @@ Channel.prototype._put = function(value, handler) {
         dispatch.run(function() {
           callback(value);
         });
+        recorder.addAction({
+          type: 'putting',
+          putId: handler.procId,
+          putLoc: handler.loc,
+          takeId: taker.procId,
+          takeLoc: taker.loc,
+          blockedTime: Date.now() - taker.started,
+          value: '' + value
+        });
         return new Box(true);
       } else {
         continue;
@@ -52,6 +62,11 @@ Channel.prototype._put = function(value, handler) {
     } else {
       if (this.buf && !this.buf.is_full()) {
         handler.commit();
+        recorder.addAction({
+          type: 'putting (buffered)',
+          loc: handler.loc,
+          procId: handler.procId
+        });
         this.buf.add(value);
         return new Box(true);
       } else {
@@ -66,6 +81,11 @@ Channel.prototype._put = function(value, handler) {
         if (this.puts.length >= MAX_QUEUE_SIZE) {
           throw new Error("No more than " + MAX_QUEUE_SIZE + " pending puts are allowed on a single channel.");
         }
+        recorder.addAction({
+          type: 'putting (blocking)',
+          loc: handler.loc,
+          procId: handler.procId
+        });
         this.puts.unbounded_unshift(new PutBox(handler, value));
       }
     }
@@ -104,6 +124,11 @@ Channel.prototype._take = function(handler) {
       }
       break;
     }
+    recorder.addAction({
+      type: 'taking (buffered)',
+      loc: handler.loc,
+      procId: handler.procId
+    });
     return new Box(value);
   }
 
@@ -117,7 +142,18 @@ Channel.prototype._take = function(handler) {
         dispatch.run(function() {
           callback(true);
         });
-        return new Box(putter.value);
+
+        var value = putter.value;
+        recorder.addAction({
+          type: 'taking',
+          takeId: handler.procId,
+          takeLoc: handler.loc,
+          putId: put_handler.procId,
+          putLoc: put_handler.loc,
+          blockedTime: Date.now() - put_handler.started,
+          value: '' + value
+        });
+        return new Box(value);
       } else {
         continue;
       }
@@ -137,6 +173,11 @@ Channel.prototype._take = function(handler) {
         if (this.takes.length >= MAX_QUEUE_SIZE) {
           throw new Error("No more than " + MAX_QUEUE_SIZE + " pending takes are allowed on a single channel.");
         }
+        recorder.addAction({
+          type: 'taking (blocking)',
+          loc: handler.loc,
+          procId: handler.procId
+        });
         this.takes.unbounded_unshift(handler);
       }
     }
@@ -157,6 +198,11 @@ Channel.prototype.close = function() {
       break;
     }
     if (taker.is_active()) {
+      recorder.addAction({
+        type: 'closing',
+        loc: taker.loc,
+        procId: taker.procId
+      });
       var callback = taker.commit();
       dispatch.run(function() {
         callback(CLOSED);
@@ -170,6 +216,11 @@ Channel.prototype.close = function() {
       break;
     }
     if (putter.handler.is_active()) {
+      recorder.addAction({
+        type: 'closing',
+        loc: putter.handler.loc,
+        procId: putter.handler.procId
+      });
       var put_callback = putter.handler.commit();
       dispatch.run(function() {
         put_callback(false);
@@ -189,5 +240,5 @@ exports.chan = function(buf) {
 };
 
 exports.Box = Box;
-
+exports.Channel = Channel;
 exports.CLOSED = CLOSED;

@@ -5,29 +5,33 @@ var channels = require("./impl/channels");
 var select = require("./impl/select");
 var process = require("./impl/process");
 var timers = require("./impl/timers");
+var recorder = require("./impl/record");
 
-function spawn(gen, returnChannel) {
-  if (returnChannel) {
-    var ch = channels.chan(buffers.fixed(1));
-    (new process.Process(gen, function(value) {
-      if (value === channels.CLOSED) {
+function newProcess(gen, source, frame) {
+  var ch = channels.chan(buffers.fixed(1));
+  var proc = new process.Process(gen, function(value) {
+    if (value === channels.CLOSED) {
+      ch.close();
+    } else {
+      process.put_then_callback(ch, value, function(ok) {
         ch.close();
-      } else {
-        process.put_then_callback(ch, value, function(ok) {
-          ch.close();
-        });
-      }
-    })).run();
-    return ch;
-  } else {
-    (new process.Process(gen)).run();
-    return null;
+      });
+    }
+  });
+
+  if(source) {
+    recorder.addProcessInfo(proc.id, frame, source);
   }
+
+  proc.run();
+}
+
+function spawn(gen) {
+  return newProcess(gen, null, recorder.getUserFrame());
 };
 
-function go(f, args, returnChannel) {
-  var gen = f.apply(null, args);
-  return spawn(gen, returnChannel);
+function go(f) {
+  return newProcess(f(), f.toString(), recorder.getUserFrame());
 };
 
 function chan(bufferOrNumber) {

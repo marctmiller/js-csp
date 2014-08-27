@@ -64,6 +64,7 @@ if (typeof MessageChannel !== "undefined") {
     }
   };
 } else {
+  console.log('using setTimeout')
   queue_dispatcher = function() {
     if (!(queued && running)) {
       queued = true;
