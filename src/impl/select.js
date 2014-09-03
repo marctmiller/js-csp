@@ -2,9 +2,12 @@
 
 var Box = require("./channels").Box;
 
-var AltHandler = function(flag, f) {
+var AltHandler = function(flag, f, procId) {
   this.f = f;
   this.flag = flag;
+  this.procId = procId;
+  this.started = Date.now();
+  this.isAlt = true;
 };
 
 AltHandler.prototype.is_active = function() {
@@ -48,7 +51,7 @@ var DEFAULT = {
 };
 
 // TODO: Accept a priority function or something
-exports.do_alts = function(operations, callback, options) {
+exports.do_alts = function(operations, callback, options, procId) {
   var length = operations.length;
   // XXX Hmm
   if (length === 0) {
@@ -72,14 +75,14 @@ exports.do_alts = function(operations, callback, options) {
       result = port._put(value, (function(port) {
         return new AltHandler(flag, function(ok) {
           callback(new AltResult(ok, port));
-        });
+        }, procId);
       })(port));
     } else {
       port = operation;
       result = port._take((function(port) {
         return new AltHandler(flag, function(value) {
           callback(new AltResult(value, port));
-        });
+        }, procId);
       })(port));
     }
     // XXX Hmm
@@ -100,3 +103,4 @@ exports.do_alts = function(operations, callback, options) {
 };
 
 exports.DEFAULT = DEFAULT;
+exports.AltHandler = AltHandler;

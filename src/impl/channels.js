@@ -2,12 +2,19 @@
 
 var buffers = require("./buffers");
 var dispatch = require("./dispatch");
-var recorder = require('./record');
+var recorder = require("./record");
 
 var MAX_DIRTY = 64;
 var MAX_QUEUE_SIZE = 1024;
 
 var CLOSED = null;
+
+function makeBufferedValue(value, procId) {
+  return { value: value,
+           time: Date.now(),
+           procId: procId,
+           wasBlocked: false };
+}
 
 var Box = function(value) {
   this.value = value;
@@ -46,48 +53,56 @@ Channel.prototype._put = function(value, handler) {
         dispatch.run(function() {
           callback(value);
         });
+
+        var now = Date.now();
         recorder.addAction({
           type: 'putting',
           putId: handler.procId,
           putLoc: handler.loc,
+          putTime: now,
           takeId: taker.procId,
           takeLoc: taker.loc,
+          takeTime: now,
+          isAlt: taker.isAlt,
+          value: '' + value,
           blockedTime: Date.now() - taker.started,
-          value: '' + value
         });
         return new Box(true);
       } else {
         continue;
       }
     } else {
-      if (this.buf && !this.buf.is_full()) {
-        handler.commit();
-        recorder.addAction({
-          type: 'putting (buffered)',
-          loc: handler.loc,
-          procId: handler.procId
-        });
-        this.buf.add(value);
-        return new Box(true);
-      } else {
-        if (this.dirty_puts > MAX_DIRTY) {
-          this.puts.cleanup(function(putter) {
-            return putter.handler.is_active();
-          });
-          this.dirty_puts = 0;
-        } else {
-          this.dirty_puts ++;
+      if (this.buf) {
+        value = makeBufferedValue(value, handler.procId);
+        if(!this.buf.is_full()) {
+          handler.commit();
+          // recorder.addAction({
+          //   type: 'putting (buffered)',
+          //   loc: handler.loc,
+          //   procId: handler.procId
+          // });
+          this.buf.add(value);
+          return new Box(true);
         }
-        if (this.puts.length >= MAX_QUEUE_SIZE) {
-          throw new Error("No more than " + MAX_QUEUE_SIZE + " pending puts are allowed on a single channel.");
-        }
-        recorder.addAction({
-          type: 'putting (blocking)',
-          loc: handler.loc,
-          procId: handler.procId
-        });
-        this.puts.unbounded_unshift(new PutBox(handler, value));
       }
+
+      if (this.dirty_puts > MAX_DIRTY) {
+        this.puts.cleanup(function(putter) {
+          return putter.handler.is_active();
+        });
+        this.dirty_puts = 0;
+      } else {
+        this.dirty_puts ++;
+      }
+      if (this.puts.length >= MAX_QUEUE_SIZE) {
+        throw new Error("No more than " + MAX_QUEUE_SIZE + " pending puts are allowed on a single channel.");
+      }
+      recorder.addAction({
+        type: 'putting (blocking)',
+        loc: handler.loc,
+        procId: handler.procId
+      });
+      this.puts.unbounded_unshift(new PutBox(handler, value));
     }
     break;
   }
@@ -116,6 +131,7 @@ Channel.prototype._take = function(handler) {
           dispatch.run(function() {
             callback(true);
           });
+          putter.value.wasBlocked = true;
           this.buf.add(putter.value);
           break;
         } else {
@@ -125,11 +141,16 @@ Channel.prototype._take = function(handler) {
       break;
     }
     recorder.addAction({
-      type: 'taking (buffered)',
+      type: 'taking',
       loc: handler.loc,
-      procId: handler.procId
+      takeId: handler.procId,
+      takeTime: Date.now(),
+      putId: value.procId,
+      putTime: value.time,
+      value: value.value,
+      blockedTime: value.wasBlocked ? Date.now() - value.time : 0
     });
-    return new Box(value);
+    return new Box(value.value);
   }
 
   while (true) {
@@ -144,12 +165,16 @@ Channel.prototype._take = function(handler) {
         });
 
         var value = putter.value;
+        var now = Date.now();
         recorder.addAction({
           type: 'taking',
           takeId: handler.procId,
           takeLoc: handler.loc,
+          takeTime: now,
           putId: put_handler.procId,
           putLoc: put_handler.loc,
+          putTime: now,
+          isAlt: put_handler.isAlt,
           blockedTime: Date.now() - put_handler.started,
           value: '' + value
         });
@@ -199,9 +224,11 @@ Channel.prototype.close = function() {
     }
     if (taker.is_active()) {
       recorder.addAction({
-        type: 'closing',
+        type: this.sleeper ? 'slept' : 'closing',
+        procId: taker.procId,
         loc: taker.loc,
-        procId: taker.procId
+        blockedTime: Date.now() - taker.started,
+        isAlt: taker.isAlt
       });
       var callback = taker.commit();
       dispatch.run(function() {
@@ -217,10 +244,13 @@ Channel.prototype.close = function() {
     }
     if (putter.handler.is_active()) {
       recorder.addAction({
-        type: 'closing',
+        type: this.sleeper ? 'slept' : 'closing',
+        procId: putter.handler.procId,
         loc: putter.handler.loc,
-        procId: putter.handler.procId
+        blockedTime: Date.now() - putter.started,
+        isAlt: putter.isAlt
       });
+
       var put_callback = putter.handler.commit();
       dispatch.run(function() {
         put_callback(false);

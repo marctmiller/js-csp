@@ -24,6 +24,7 @@ function newProcess(gen, source, frame) {
   }
 
   proc.run();
+  return ch;
 }
 
 function spawn(gen) {
@@ -63,7 +64,6 @@ module.exports = {
 
   put: process.put,
   take: process.take,
-  sleep: process.sleep,
   alts: process.alts,
   putAsync: process.put_then_callback,
   takeAsync: process.take_then_callback,

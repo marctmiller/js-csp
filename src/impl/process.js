@@ -55,7 +55,6 @@ var Instruction = function(op, data, loc) {
 
 var TAKE = "take";
 var PUT = "put";
-var SLEEP = "sleep";
 var ALTS = "alts";
 
 // TODO FIX XXX: This is a (probably) temporary hack to avoid blowing
@@ -119,30 +118,10 @@ Process.prototype.run = function(response) {
       }, ins.loc, this.id);
       break;
 
-    case SLEEP:
-      var msecs = ins.data;
-      var procId = this.id;
-      var started = Date.now();
-
-      var n = Date.now();
-      var id = Math.random() * 1000 | 0;
-      dispatch.queue_delay(function() {
-        recorder.addAction({
-          type: 'slept',
-          procId: procId,
-          loc: ins.loc,
-          sleepTime: Date.now() - started
-        });
-        console.log('slept for ' + (Date.now() - n) +
-                    ', supposed to sleep for ' + msecs);
-        self.run(null);
-      }, msecs);
-      break;
-
     case ALTS:
       select.do_alts(ins.data.operations, function(result) {
         self._continue(result);
-      }, ins.data.options);
+      }, ins.data.options, this.id);
       break;
     }
   }
@@ -172,10 +151,6 @@ function put(channel, value) {
   }, recorder.getUserFrame());
 }
 
-function sleep(msecs) {
-  return new Instruction(SLEEP, msecs, recorder.getUserFrame());
-}
-
 function alts(operations, options) {
   return new Instruction(ALTS, {
     operations: operations,
@@ -187,7 +162,6 @@ exports.put_then_callback = put_then_callback;
 exports.take_then_callback = take_then_callback;
 exports.put = put;
 exports.take = take;
-exports.sleep = sleep;
 exports.alts = alts;
 
 exports.Process = Process;

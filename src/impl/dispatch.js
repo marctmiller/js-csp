@@ -64,11 +64,18 @@ if (typeof MessageChannel !== "undefined") {
     }
   };
 } else {
-  console.log('using setTimeout')
+  var delay = 0;
+  if(typeof importScripts === 'function') {
+    // We are in a web worker. In Firefox, the sleep timers get all
+    // screwed up when you do a lot of setTimeout(func, 0), and some
+    // of the sleeps don't actually sleep. bug 1059469
+    delay = 1;
+  }
+
   queue_dispatcher = function() {
     if (!(queued && running)) {
       queued = true;
-      setTimeout(process_messages, 0);
+      setTimeout(process_messages, delay);
     }
   };
 }

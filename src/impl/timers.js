@@ -5,6 +5,7 @@ var channels = require("./channels");
 
 exports.timeout = function timeout_channel(msecs) {
   var chan = channels.chan();
+  chan.sleeper = true;
   dispatch.queue_delay(function() {
     chan.close();
   }, msecs);
