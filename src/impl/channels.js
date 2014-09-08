@@ -13,7 +13,7 @@ function makeBufferedValue(value, procId) {
   return { value: value,
            time: Date.now(),
            procId: procId,
-           wasBlocked: false };
+           blockedTime: 0 };
 }
 
 var Box = function(value) {
@@ -76,11 +76,6 @@ Channel.prototype._put = function(value, handler) {
         value = makeBufferedValue(value, handler.procId);
         if(!this.buf.is_full()) {
           handler.commit();
-          // recorder.addAction({
-          //   type: 'putting (buffered)',
-          //   loc: handler.loc,
-          //   procId: handler.procId
-          // });
           this.buf.add(value);
           return new Box(true);
         }
@@ -131,7 +126,10 @@ Channel.prototype._take = function(handler) {
           dispatch.run(function() {
             callback(true);
           });
-          putter.value.wasBlocked = true;
+
+          var blockStarted = putter.value.time;
+          putter.value.time = Date.now();
+          putter.value.blockedTime = putter.value.time - blockStarted;
           this.buf.add(putter.value);
           break;
         } else {
@@ -140,6 +138,7 @@ Channel.prototype._take = function(handler) {
       }
       break;
     }
+
     recorder.addAction({
       type: 'taking',
       loc: handler.loc,
@@ -148,7 +147,7 @@ Channel.prototype._take = function(handler) {
       putId: value.procId,
       putTime: value.time,
       value: value.value,
-      blockedTime: value.wasBlocked ? Date.now() - value.time : 0
+      blockedTime: value.blockedTime || 0
     });
     return new Box(value.value);
   }

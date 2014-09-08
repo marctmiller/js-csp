@@ -7,7 +7,7 @@ var process = require("./impl/process");
 var timers = require("./impl/timers");
 var recorder = require("./impl/record");
 
-function newProcess(gen, source, frame) {
+function newProcess(gen, name) {
   var ch = channels.chan(buffers.fixed(1));
   var proc = new process.Process(gen, function(value) {
     if (value === channels.CLOSED) {
@@ -19,20 +19,17 @@ function newProcess(gen, source, frame) {
     }
   });
 
-  if(source) {
-    recorder.addProcessInfo(proc.id, frame, source);
-  }
-
+  recorder.addProcessInfo(proc.id, name);
   proc.run();
   return ch;
 }
 
 function spawn(gen) {
-  return newProcess(gen, null, recorder.getUserFrame());
+  return newProcess(gen, recorder.getProcessName());
 };
 
 function go(f) {
-  return newProcess(f(), f.toString(), recorder.getUserFrame());
+  return newProcess(f(), recorder.getProcessName());
 };
 
 function chan(bufferOrNumber) {
@@ -64,6 +61,7 @@ module.exports = {
 
   put: process.put,
   take: process.take,
+  takem: process.takem,
   alts: process.alts,
   putAsync: process.put_then_callback,
   takeAsync: process.take_then_callback,

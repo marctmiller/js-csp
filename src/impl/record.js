@@ -1,4 +1,3 @@
-var parsetrace = require("./parsetrace");
 var dispatch = require("./dispatch");
 
 // Recording
@@ -25,6 +24,13 @@ var recorder = {
     };
   },
 
+  getData: function() {
+    return {
+      actions: this.actions,
+      processes: this.processes
+    }
+  },
+
   onFinished: function(cb) {
     this._onFinished = cb;
   },
@@ -46,17 +52,39 @@ var recorder = {
     }
   },
 
-  addProcessInfo: function(id, loc, source) {
+  addProcessInfo: function(id, name, source) {
     this.processes[id] = {
-      loc: loc,
+      id: id,
+      name: name,
       source: source
     };
 
     this.runningProcesses.push(id);
   },
 
-  getUserFrame: function(offset) {
-    return parsetrace(new Error()).object().frames[offset || 2];
+  getProcessName: function(offset) {
+    var err = new Error();
+    if(!err.stack) { return null; }
+
+    var stack = err.stack.split('\n');
+    if(stack[0] === 'Error') {
+      stack.shift();
+    }
+
+    var frame = stack[offset || 2];
+    frame = frame.replace(/^\s+at /, '');
+    var match = frame.match(/^([\w$]+)/);
+    if(!match) { return null; }
+    var name = match[1];
+
+    // Hack to avoid showing regenerater-ified call names
+    if(name.indexOf('callee') === 0 ||
+       name === 'anonymous') {
+      return null;
+    }
+
+    name = name.split('.');
+    return name[name.length - 1];
   }
 };
 
